@@ -1,5 +1,15 @@
 from dataclasses import dataclass
+from typing import Iterable
+from itertools import chain
 
+shape_to_delta: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {
+    "-": ((0, -1), (0, +1)),
+    "|": ((-1, 0), (+1, 0)),
+    "J": ((-1, 0), (0, -1)),
+    "L": ((-1, 0), (0, +1)),
+    "7": ((0, -1), (+1, 0)),
+    "F": ((0, +1), (+1, 0)),
+}
 
 @dataclass
 class Point:
@@ -8,21 +18,20 @@ class Point:
 
     def valid(self, tiles: list[str]) -> bool:
         return 0 <= self.x < len(tiles) or 0 <= self.y < len(tiles[self.x])
-
+    
+    def delta(self, dx, dy) -> "Point":
+        return Point(self.x + dx, self.y + dy)
 
     def get_legs(self, tiles: list[str]) -> list["Point"]:
-        x, y = self.x, self.y
-        match tiles[x][y]:
-            case "-": return [Point(x, y - 1), Point(x, y + 1)]
-            case "|": return [Point(x - 1, y), Point(x + 1, y)]
-            case "J": return [Point(x - 1, y), Point(x, y - 1)]
-            case "L": return [Point(x - 1, y), Point(x, y + 1)]
-            case "7": return [Point(x + 1, y), Point(x, y - 1)]
-            case "F": return [Point(x + 1, y), Point(x, y + 1)]
-        return [Point(-1, -1)]
+        if (deltas := shape_to_delta.get(tiles[self.x][self.y])) is None:
+            return [Point(-1, -1)]
+        return [self.delta(*delta) for delta in deltas]
 
 
-def loop(tiles: list[str], prev: Point, pos: Point) -> int | None:
+def loop(tiles: list[str], prev: Point, pos: Point) -> list[list[bool]] | None:
+    start_deltas = [(pos.x - prev.x, pos.y - prev.y)]
+    owned = [[False] * len(row) for row in tiles]
+    owned[pos.x][pos.y] = True
     def get_next(prev: Point, pos: Point) -> Point | None:
         if not pos.valid(tiles):
             return None
@@ -31,16 +40,17 @@ def loop(tiles: list[str], prev: Point, pos: Point) -> int | None:
             return None
         legs.remove(prev)
         return legs[0]
-    length = 0
     while (nxt := get_next(prev, pos)):
-        length += 1
+        owned[nxt.x][nxt.y] = True
         if tiles[nxt.x][nxt.y] == "S":
-            return length + 1
+            start_deltas.append((pos.x - nxt.x, pos.y - nxt.y))
+            start = next(key for key, value in shape_to_delta.items() if set(value) == set(start_deltas))
+            tiles[nxt.x] = tiles[nxt.x].replace("S", start)
+            return owned
         prev, pos = pos, nxt
+    return None
 
-
-
-def part1(lines):
+def get_maps(lines: Iterable[str]) -> tuple[list[list[bool]], list[str]]:
     tiles: list[str] = [line.strip() for line in lines]
     x: int = 0
     y: int = 0
@@ -49,5 +59,24 @@ def part1(lines):
             break
     deltas = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     for dx, dy in deltas:
-        if length := loop(tiles, Point(x, y), Point(x + dx, y + dy)):
-            return length / 2
+        if owned := loop(tiles, Point(x, y), Point(x + dx, y + dy)):
+            return owned, tiles
+    assert False
+
+
+def part1(lines):
+    return list(chain(*get_maps(lines)[0])).count(True) / 2
+
+
+def part2(lines):
+    downward_tiles = "|F7"
+    owned, tiles = get_maps(lines)
+    owned_count = 0
+    for owned_row, tile_row in zip(owned, tiles):
+        inside = False
+        for owned, tile in zip(owned_row, tile_row):
+            if tile in downward_tiles and owned:
+                inside = not inside
+            if inside and not owned:
+                owned_count += 1
+    return owned_count
